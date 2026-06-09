@@ -1,100 +1,68 @@
+/**
+ * Simplified auth — no Supabase auth.
+ * User picks "Aziz" or "Eya" on first visit, stored in localStorage.
+ * All data is still read/written to Supabase (anon key, no RLS enforcement needed).
+ */
 import { create } from 'zustand'
-import { supabase } from '../lib/supabase'
+
+// Hardcoded couple data
+export const USERS = {
+  aziz: {
+    id: 'user-aziz',
+    display_name: 'Aziz',
+    role: 'partner1',
+    avatar_url: null,
+    couple_id: 'couple-us',
+  },
+  eya: {
+    id: 'user-eya',
+    display_name: 'Eya',
+    role: 'partner2',
+    avatar_url: null,
+    couple_id: 'couple-us',
+  },
+}
+
+export const COUPLE = {
+  id: 'couple-us',
+  couple_name: 'Aziz & Eya',
+  anniversary_date: null,
+  partner1_id: 'user-aziz',
+  partner2_id: 'user-eya',
+}
+
+const STORAGE_KEY = 'us_app_user'
 
 export const useAuthStore = create((set, get) => ({
   user: null,
   profile: null,
-  session: null,
   loading: true,
-  error: null,
 
-  initialize: async () => {
-    try {
-      const { data: { session } } = await supabase.auth.getSession()
-      if (session?.user) {
-        set({ user: session.user, session, loading: false })
-        await get().fetchProfile(session.user.id)
-      } else {
-        set({ loading: false })
-      }
-
-      // Listen for auth changes
-      supabase.auth.onAuthStateChange(async (event, session) => {
-        if (event === 'SIGNED_IN' && session?.user) {
-          set({ user: session.user, session })
-          await get().fetchProfile(session.user.id)
-        } else if (event === 'SIGNED_OUT') {
-          set({ user: null, profile: null, session: null })
-        }
-      })
-    } catch (error) {
-      console.error('Auth initialization error:', error)
-      set({ loading: false, error: error.message })
+  initialize: () => {
+    const saved = localStorage.getItem(STORAGE_KEY)
+    if (saved && USERS[saved]) {
+      set({ user: USERS[saved], profile: USERS[saved], loading: false })
+    } else {
+      set({ loading: false })
     }
   },
 
-  fetchProfile: async (userId) => {
-    try {
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', userId)
-        .single()
-
-      if (error && error.code !== 'PGRST116') throw error
-      set({ profile: data })
-    } catch (error) {
-      console.error('Profile fetch error:', error)
-    }
+  selectUser: (key) => {
+    // key = 'aziz' | 'eya'
+    localStorage.setItem(STORAGE_KEY, key)
+    set({ user: USERS[key], profile: USERS[key] })
   },
 
-  signUp: async (email, password) => {
-    set({ loading: true, error: null })
-    try {
-      const { data, error } = await supabase.auth.signUp({ email, password })
-      if (error) throw error
-      set({ user: data.user, session: data.session, loading: false })
-      return { success: true }
-    } catch (error) {
-      set({ loading: false, error: error.message })
-      return { success: false, error: error.message }
-    }
+  updateProfile: (updates) => {
+    const { profile } = get()
+    if (!profile) return
+    const updated = { ...profile, ...updates }
+    set({ profile: updated, user: updated })
+    return { success: true }
   },
 
-  signIn: async (email, password) => {
-    set({ loading: true, error: null })
-    try {
-      const { data, error } = await supabase.auth.signInWithPassword({ email, password })
-      if (error) throw error
-      set({ user: data.user, session: data.session, loading: false })
-      return { success: true }
-    } catch (error) {
-      set({ loading: false, error: error.message })
-      return { success: false, error: error.message }
-    }
-  },
-
-  signOut: async () => {
-    await supabase.auth.signOut()
-    set({ user: null, profile: null, session: null })
-  },
-
-  updateProfile: async (updates) => {
-    const { user } = get()
-    if (!user) return
-
-    try {
-      const { data, error } = await supabase
-        .from('profiles')
-        .upsert({ id: user.id, ...updates })
-        .select()
-        .single()
-
-      if (error) throw error
-      set({ profile: data })
-      return { success: true }
-    } catch (error) {
-      return { success: false, error: error.message }
-    }
+  signOut: () => {
+    localStorage.removeItem(STORAGE_KEY)
+    set({ user: null, profile: null })
   },
 }))
